@@ -18,35 +18,73 @@ def sample_one_image(theta, filter2, y, alpha = 1.0, beta = 0.0):
     '''
     theta: proposal emitting rate. cupy array (h x w)
     filter2: PSF. cupy array (fs x fs)
-    y: photon counts. cupy array (h x w)
+    y: photon counts. cupy array (hs x ws). h/hs and w/ws must be the same integer.
     alpha, beta: prior
     '''
-
     h, w = theta.shape
+    hs, ws = y.shape
+    zoom = h // hs
     fs = filter2.shape[0]
-    hfs = fs // 2
+    hfs = fs // zoom // 2
 
-    assert(hfs * 2 + 1 == fs)
+    assert(fs == filter2.shape[1])
+    assert(hfs * 2 * zoom + zoom == fs)
+    assert(zoom * hs == h and zoom * ws == w)
 
-    theta_new = cp.zeros_like(theta)
-    theta = theta[cp.newaxis, cp.newaxis, ...] * filter2[..., cp.newaxis, cp.newaxis] ## array of [fs, fs, h, w]
+    ## array of [fs//zoom, hs, zoom, fs//zoom, ws, zoom]
+    theta_p = theta.reshape(1, hs, zoom, 1, ws, zoom) * filter2.reshape(fs//zoom, 1, zoom, fs//zoom, 1, zoom)
 
-    orig_strides = theta.strides
-    new_strides = orig_strides[0] + orig_strides[2], orig_strides[1] + orig_strides[3], orig_strides[2], orig_strides[3]
-    theta_rolled = stride_tricks.as_strided(theta, shape = (fs, fs, h - hfs * 2, w - hfs * 2), strides = new_strides)
+    orig_strides = theta_p.strides
+    new_strides = (
+        orig_strides[0]+orig_strides[1],
+        orig_strides[1],
+        orig_strides[2],
+        orig_strides[3]+orig_strides[4],
+        orig_strides[4],
+        orig_strides[5],
+        )
+    theta_rolled = stride_tricks.as_strided(
+        theta_p,
+        shape=(fs//zoom, hs - hfs * 2, zoom, fs//zoom, ws - hfs * 2, zoom),
+        strides = new_strides
+        )
 
-    theta_sum = cp.sum(theta_rolled, axis = (0,1))
-    y_remain = y[hfs:h-hfs, hfs:w-hfs].copy()
+    theta_sum = theta_rolled.sum(axis=(0,2,3,5))
+    y_remain = y[hfs:hs-hfs, hfs:ws-hfs].copy()
 
+    theta[...] = 0.0
+    theta = theta.reshape(hs, zoom, ws, zoom)
     for idx in np.arange(fs * fs - 1):
-        i,j = np.unravel_index(idx, (fs,fs))
-        tmp = cp.random.binomial(y_remain, theta_rolled[i,j,...] / theta_sum)
+        i, z1, j, z2 = np.unravel_index(idx, (fs//zoom, zoom, fs//zoom, zoom))
+        tmp = cp.random.binomial(y_remain, theta_rolled[i, :, z1, j, :, z2] / theta_sum)
+        theta_sum -=  theta_rolled[i, :, z1, j, :, z2]
         y_remain -= tmp
-        theta_new[i : i + h - hfs * 2, j : j + w - hfs * 2] += tmp
-        theta_sum -= theta_rolled[i, j, ...]
-    theta_new[hfs*2:h, hfs*2:w] += y_remain
+        theta[i : i + hs - hfs * 2, z1, j : j + ws - hfs * 2, z2] += tmp
+    theta[hfs*2:hs, -1, hfs*2:ws, -1] += y_remain
+    theta = theta.reshape(h,w)
 
-    return cp.random.gamma(theta_new + alpha, 1.0 / (beta + 1))
+    return cp.random.gamma(theta + alpha, 1.0 / (beta + 1))
+
+def sample_burn_in(img, psf, zoom = 1.0, alpha = 1.0):
+    img = cp.array(img)
+    psf = cp.array(psf)
+
+    hs, ws = img.shape
+    theta = cp.ones((hs * zoom, ws * zoom), dtype=cp.float32)
+    for i in range(_default_config["n_burn_in"]):
+        theta = sample_one_image(theta, psf, img, alpha=alpha)
+
+    return theta
+
+def sample_draw_next(img, psf, prev, alpha = 1.0, beta = 0.0):
+    img = cp.array(img)
+    psf = cp.array(psf)
+
+    theta = prev
+    for i in range(_default_config["n_skip"]):
+        theta = sample_one_image(theta, psf, img, alpha=alpha, beta=beta)
+
+    return theta
 
 def map_iteration(theta, filter2, y, alpha = 1.0, beta = 0.0):
     '''
