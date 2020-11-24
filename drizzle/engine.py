@@ -120,8 +120,11 @@ def map_process_frame(frame, data, psf, flux, prev):
     img = cp.array(data[frame,...])
     psf = cp.array(psf)
 
+    if not np.isscalar(flux):
+        flux = flux[frame]
+
     beta = cp.zeros_like(prev)
-    beta0 = 1.0 / _default_config["brightness"] / flux[frame]
+    beta0 = 1.0 / _default_config["brightness"] / flux
     beta[prev != 0.0] = beta0
 
     alpha = prev * (img.sum() * beta0 / prev.sum()) + _default_config["uninformative_a"]
