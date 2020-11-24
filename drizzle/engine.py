@@ -52,8 +52,8 @@ def map_iteration(theta, filter2, y, alpha = 1.0, beta = 0.0):
     '''
     theta: proposal emitting rate. cupy array (h x w)
     filter2: PSF. cupy array (fs x fs)
-    y: photon counts. cupy array (h x w)
-    alpha, beta: prior
+    y: photon counts. cupy array (hs x ws), h/hs and w/ws must be the same integer
+    alpha, beta: prior parameters
     '''
 
     h, w = theta.shape
