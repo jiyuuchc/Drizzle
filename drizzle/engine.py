@@ -6,7 +6,7 @@ _default_config = {
     "n_samples": 1000,
     "n_skip": 10,
     "n_burn_in": 200,
-    "map_iterations": 500,
+    "map_iterations": 1000,
     "uninformative_a": 1.0,
     "brightness": 1000,
 }
@@ -14,7 +14,7 @@ _default_config = {
 def update_config(config):
     _default_config.update(config)
 
-def sample_one_image(theta, filter2, y, alpha = 1.0, beta = 0.0):
+def sample_iteration(theta, filter2, y, alpha = 1.0, beta = 0.0):
     '''
     theta: proposal emitting rate. cupy array (h x w)
     filter2: PSF. cupy array (fs x fs)
@@ -72,7 +72,7 @@ def sample_burn_in(img, psf, zoom = 1.0, alpha = 1.0):
     hs, ws = img.shape
     theta = cp.ones((hs * zoom, ws * zoom), dtype=cp.float32)
     for i in range(_default_config["n_burn_in"]):
-        theta = sample_one_image(theta, psf, img, alpha=alpha)
+        theta = sample_iteration(theta, psf, img, alpha=alpha)
 
     return theta
 
@@ -82,7 +82,7 @@ def sample_draw_next(img, psf, prev, alpha = 1.0, beta = 0.0):
 
     theta = prev
     for i in range(_default_config["n_skip"]):
-        theta = sample_one_image(theta, psf, img, alpha=alpha, beta=beta)
+        theta = sample_iteration(theta, psf, img, alpha=alpha, beta=beta)
 
     return theta
 
@@ -143,7 +143,7 @@ def map_iteration(theta, filter2, y, alpha = 1.0, beta = 0.0):
 
     return theta
 
-def sparse_deconv(img, psf, zoom = 1.0, alpha = 0.0):
+def sparse_deconv(img, psf, zoom = 1, alpha = 0.0):
     img = cp.array(img)
     psf = cp.array(psf)
 
