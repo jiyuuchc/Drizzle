@@ -15,7 +15,7 @@ def get_gauss_psf(psf_sigma = 6.0):
     filter2 = filter[..., np.newaxis] * filter[np.newaxis, ...]
     return filter2
 
-def gen_pb_seq(s= 250, n_steps = 50, scale = 25, alpha_p = 0.2, alpha_n = 2e-4):
+def gen_pb_seq(s = 200, n_steps = 30, scale = 10, alpha_p = 0.2, alpha_n = 2e-4):
     img_size = (s,s)
     img = np.zeros(img_size, dtype = np.float32)
     rr,cc,val = skimage.draw.line_aa(int(s*0.5), int(s*0.2), int(s*0.45), int(s*0.8))
@@ -38,11 +38,13 @@ def gen_pb_seq(s= 250, n_steps = 50, scale = 25, alpha_p = 0.2, alpha_n = 2e-4):
 
     return imgs
 
-def gen_photon_seq(seq, psf, brightness = 1000):
+def gen_photon_seq(seq, psf, brightness = 1000, bg = 0.1):
     imgs_c = np.zeros_like(seq)
     for idx in range(seq.shape[0]):
         tmp = scipy.ndimage.convolve(seq[idx,...], psf, mode = 'constant')
-        imgs_c[idx,...] = _rng.poisson(tmp * brightness).astype(np.float32)
+        tmp = _rng.poisson(tmp * brightness + bg)
+        tmp += (_rng.standard_normal(size=tmp.shape) * tmp * 0.01).astype(np.int)
+        imgs_c[idx,...] = tmp.clip(min=0)
 
     return imgs_c
 
@@ -50,11 +52,14 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Generate a test image sequence.')
     parser.add_argument('pathname', metavar='<pathname>', nargs='?', default='test_imgs', help='a file to save the results to')
+    parser.add_argument('--brightness', default=1000, type=int)
+    parser.add_argument('--counts', default=10, type=int)
+    parser.add_argument('--nframes', default=30, type=int)
     args = parser.parse_args()
 
-    _rng = np.random.default_rng(42)
+    #_rng = np.random.default_rng(42)
     psf = get_gauss_psf()
-    seq = gen_pb_seq()
-    imgs = gen_photon_seq(seq, psf)
+    seq = gen_pb_seq(n_steps=args.nframes, scale=args.counts)
+    imgs = gen_photon_seq(seq, psf, brightness=args.brightness)
 
     np.savez_compressed(args.pathname, imgs=imgs, truth=seq)
